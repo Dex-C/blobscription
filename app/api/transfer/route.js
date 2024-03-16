@@ -1,8 +1,8 @@
 export async function POST(req) {
-  console.log("handle POST mint")
+  console.log("handle POST transfer")
   try {
     // Extract mintData from the request body
-    const { mintData } = req.body;
+    const { transferData } = req.body;
 
     // Process mintData (e.g., mint tokens)
     // Your minting logic goes here...
@@ -14,7 +14,7 @@ export async function POST(req) {
     // )
 
     return Response.json(
-      {message:"server:Token minted successfully"},
+      {message:"server:Token transferred successfully"},
     {status: 200,
       
     })
