@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 
@@ -106,17 +105,32 @@ func mintHandler(c echo.Context) error {
 		ChainID:    uint256.NewInt(11155111),
 		Nonce:      uint64(nonce),
 		GasTipCap:  priorityGasPrice256,
-		GasFeeCap:  gasPrice,
+		GasFeeCap:  gasPrice.Add(uint256.NewInt(5e10), gasPrice),// gas price + 50gwei
 		Gas:        231072,
+		Value:      uint256.NewInt(0),
+		Data:       nil,
 		To:         common.Address{0x03, 0x04, 0x05},
-		BlobFeeCap: uint256.NewInt(5000000000),
+		BlobFeeCap: uint256.NewInt(3e10), // 30gwei
 		BlobHashes: versionedHashes,
 		Sidecar:    &types.BlobTxSidecar{Blobs: blobs, Commitments: commitments, Proofs: proofs},
 	})
+
+
+
+	// dynaTx := types.NewTx(&types.DynamicFeeTx{
+	// 	ChainID:    chainID,
+	// 	Nonce:      uint64(nonce),
+	// 	GasTipCap:  priorityGasPrice256.ToBig(),
+	// 	GasFeeCap:  gasPrice.Add(uint256.NewInt(5000000000), gasPrice).ToBig(),
+	// 	Gas:        231072,
+	// 	Value: (big.NewInt(10000000000000000)),
+	// 	To:         &common.Address{0x03, 0x04, 0x05},
+	// })
 	// signedTx, _ := types.SignTx(tx, types.NewCancunSigner(chainId), key)
 	// err = client.SendTransaction(context.Background(), signedTx)
 
 	signedTx, err := types.SignTx(tx, types.NewCancunSigner(chainID), privateKey)
+	// signedTx, err := types.SignTx(dynaTx, types.NewCancunSigner(chainID), privateKey)
 
 	if err != nil {
 		log.Fatal(err)
@@ -135,7 +149,7 @@ func mintHandler(c echo.Context) error {
 	// }
 	// fmt.Sprintf("receipt: %+v", receipt)
 
-	return c.JSON(http.StatusOK, fmt.Sprintf("go backend get mint data success fully"))
+	return c.JSON(http.StatusOK, "go backend get mint data success fully")
 }
 
 // func mintHandler(c echo.Context) error {
@@ -252,7 +266,7 @@ func transferHandler(c echo.Context) error {
 	}
 
 	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
-	log.Println("send from address: %v", fromAddress)
+	log.Println("send from address:", fromAddress)
 	nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
 	if err != nil {
 		log.Fatal(err)
@@ -260,7 +274,7 @@ func transferHandler(c echo.Context) error {
 
 	chainID, err := client.NetworkID(context.Background())
 
-	log.Println("chainid:%v", chainID.Int64())
+	log.Println("chainid:", chainID.Int64())
 
 	if err != nil {
 		log.Fatal(err)
@@ -285,7 +299,7 @@ func transferHandler(c echo.Context) error {
 		GasFeeCap:  gasPrice,
 		Gas:        231072,
 		To:         common.Address{0x03, 0x04, 0x05},
-		BlobFeeCap: uint256.NewInt(5000000000),
+		BlobFeeCap: uint256.NewInt(1000),
 		BlobHashes: versionedHashes,
 		Sidecar:    &types.BlobTxSidecar{Blobs: blobs, Commitments: commitments, Proofs: proofs},
 	})
