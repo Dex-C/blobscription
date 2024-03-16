@@ -1,8 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
+indexer/.credential
 # dependencies
 /node_modules
-/indexer/.credential
 /.pnp
 .pnp.js
 .yarn/install-state.gz
