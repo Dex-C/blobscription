@@ -3,6 +3,9 @@ import json
 import os
 import requests  # Import the requests library
 from pymongo import MongoClient  # Import the MongoClient class from pymongo
+import random
+import hashlib
+from collections import defaultdict
 
 # Assuming '.credential' is a JSON file, it should be opened with the open() function, then parsed with json.load()
 with open('.credential') as f:
@@ -51,32 +54,113 @@ def start_index():
                 print(item)
                 block_no=item['block']['number']
                 tx_hash=item['hash']
+                from_address=item['fromId']
                 for blob in item['blobs']:
                     commitment_hash = blob['blob']['commitment']
                     BS20_json=get_blob_details(commitment_hash)  # Print each item in the JSON
-                    write_to_mongodb(block_no,commitment_hash,BS20_json)
+                    write_to_mongodb(block_no,commitment_hash,BS20_json,fron_address)
+
+def get_current_block_no():
+    infura_url = credential['INFURA']
+    response = requests.post(infura_url, json={"jsonrpc":"2.0","method":"eth_blockNumber","params": [],"id":1})
+    current_block_number = int(response.json().get('result', '0x0'), 16)
+    return current_block_number
 
 def start_index_dummy():
     dummy_data_dir = './dummydata'
-    for dummy_blob_filename in os.listdir(dummy_data_dir):
+    sorted_filenames = sorted(os.listdir(dummy_data_dir), key=lambda x: int(x.replace('.json', '')))
+    for dummy_blob_filename in sorted_filenames:
+        print(dummy_blob_filename)
         with open(os.path.join(dummy_data_dir, dummy_blob_filename)) as f:
             BS20_json = json.load(f)
-            #TODO:generate a dummy block number of 
-            #TODO:generate a dummy KZG_commit of length equal to "0x87cec3b5c334e3f89f9594c175cd98269fc16da2179c0a4e8347e071942857558fc17f01cc57f11118468d0b35deedf5"
-            write_to_mongodb(BS20_json)
+            block_no=get_current_block_no()-100+int(dummy_blob_filename.replace('.json',''))
+            from_address = credential['EOA']
+
+            data_to_hash = str(block_no) + json.dumps(BS20_json, sort_keys=True)
+            # Hashing the combined string
+            hash_object = hashlib.sha256(data_to_hash.encode('utf-8'))
+            hex_dig = hash_object.hexdigest()
+            dummy_KZG_commit = "0x" + hex_dig +"abcdef1234567890abcdef1234567890" # This will be 64 characters long, as SHA-256 produces a 64-character hex digest
+
+            write_to_mongodb(block_no,dummy_KZG_commit,BS20_json,from_address)
 
 def track_balance():
     client = MongoClient(credential['mongo_uri'])  # Use your MongoDB URI
-    db = 'BlobScriptions'  # Specify your database name
-    collection = 'BlobScriptions'  # Specify your collection name
-    #TODO:retrieve current blocknumber from infura
-    #TODO:retrieve all records from the database
-    #TODO:if the retrieved record is none, return a defaultdict of defaultdict of integer
+    db = client.BlobScriptions  # Access the database using the client
+    collection = db.BlobScriptions  # Access the collection from the database
+    current_block_no = get_current_block_no()
+    last_4096_epoch = 32 * 4096
+    lower_bound_block_no = current_block_no - last_4096_epoch
 
-def write_to_mongodb(block_no,KZG_Hash,BS20_json):
+    # Retrieve records where block_no is greater than current_block_no - last_4096_epoch
+    # Sort the records first by block_no, then by KZG_hash, both ascending
+
+    records = list(collection.find({"block_no": {"$gt": lower_bound_block_no}})
+                               .sort([("block_no", 1), ("KZG_Hash", 1)]))  # Correction here
+    balance=defaultdict(lambda: defaultdict(int))
+
+    if records ==[]:
+        return balance
+    # If the retrieved records are none, return a defaultdict of defaultdict of integer
+    if not records:
+        return balance
+    
+    
+    for record in records:
+        if record['data']['method']=='mint':
+            balance[record['data']['ticker']][record['from_address']]=record['data']['amount']
+        if record['data']['method']=='transfer':
+            balance[record['data']['ticker']][record['from_address']]-=record['data']['amount']
+            balance[record['data']['ticker']][record['data']['to']]+=record['data']['amount']
+
+    return balance
+
+
+def write_to_mongodb(block_no,KZG_Hash,BS20_json,from_address):
     # Assuming 'credentials' contains MongoDB connection info
     client = MongoClient(credential['mongo_uri'])  # Use your MongoDB URI
-    db = 'BlobScriptions'  # Specify your database name
-    collection = 'BlobScriptions'  # Specify your collection name
-    #TODO: insert if only KZG commit is not duplicate
-    # collection.insert_one(blob_data)  # Insert the JSON data into MongoDB
+    db = client.BlobScriptions  # Access the database using the client
+    collection = db.BlobScriptions  # Access the collection from the database
+
+    token_balance = track_balance()
+
+    if BS20_json['method']=='mint':
+        if collection.find_one({"KZG_Hash": KZG_Hash}):
+            print("KZG commit is a duplicate, not inserting.")
+        if BS20_json['ticker'] in token_balance.keys():
+            print("Token With Same Ticker Already Exists")
+            return None
+        else:
+            # Prepare the document to insert
+            document = {
+                "block_no": block_no,
+                "KZG_Hash": KZG_Hash,
+                "from_address": from_address,
+                "data": BS20_json
+            }
+            collection.insert_one(document)
+            print("Document inserted successfully.")
+        #collection.insert_one(BS20_json)  # Insert the JSON data into MongoDB
+
+    if  BS20_json['method']=='transfer':
+        #check balance
+        ticker = BS20_json.get('ticker')
+        from_address_balance = token_balance.get(ticker, {}).get(from_address, 0)
+        if from_address_balance < BS20_json.get('amount', 0):
+            print("Not Enough Balance")
+            return None
+        else:
+            if collection.find_one({"KZG_Hash": KZG_Hash}):
+                print("KZG commit is a duplicate, not inserting.")
+            else:
+                # Prepare the document to insert
+                document = {
+                    "block_no": block_no,
+                    "KZG_Hash": KZG_Hash,
+                    "from_address": from_address,
+                    "data": BS20_json
+                }
+                collection.insert_one(document)
+                print("Document inserted successfully.")
+
+start_index_dummy()
